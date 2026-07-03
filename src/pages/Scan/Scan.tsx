@@ -22,25 +22,44 @@ type ScanState =
   | { mode: 'parsed';   dataUrl: string; rawText: string; parseResult: ParseResult; reconciliation: Reconciliation }
   | { mode: 'error';    dataUrl: string; message: string }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function modeSubtitle(mode: ScanState['mode']): string {
+  if (mode === 'preview')  return 'Looks good? Tap Scan to extract items automatically.'
+  if (mode === 'scanning') return 'Running OCR in your browser…'
+  if (mode === 'parsed')   return 'Check items and receipt math before continuing.'
+  if (mode === 'error')    return 'Something went wrong with OCR.'
+  return 'Upload or photograph your receipt. OCR runs in your browser — nothing is uploaded.'
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function Scan() {
   const navigate  = useNavigate()
   const { draft, dispatch } = useReceipt()
-  const fileRef   = useRef<HTMLInputElement>(null)
+  const cameraRef  = useRef<HTMLInputElement>(null)
+  const galleryRef = useRef<HTMLInputElement>(null)
   const [state, setState] = useState<ScanState>({ mode: 'idle' })
   const [isDragging, setIsDragging] = useState(false)
+  const [heicWarning, setHeicWarning] = useState(false)
 
   // ── File selection ──────────────────────────────────────────────────────────
 
   const handleFile = useCallback((file: File) => {
-    if (!file.type.startsWith('image/')) return
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string
-      setState({ mode: 'preview', dataUrl, showProcessed: false })
+    if (file.type.startsWith('image/')) {
+      const name = file.name.toLowerCase()
+      if (file.type === 'image/heic' || file.type === 'image/heif' || name.endsWith('.heic') || name.endsWith('.heif')) {
+        setHeicWarning(true)
+        return
+      }
+      setHeicWarning(false)
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string
+        setState({ mode: 'preview', dataUrl, showProcessed: false })
+      }
+      reader.readAsDataURL(file)
     }
-    reader.readAsDataURL(file)
   }, [])
 
   const onFileChange = useCallback(
@@ -58,10 +77,9 @@ export default function Scan() {
     setIsDragging(true)
   }, [])
 
-  const onDragLeave = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-      setIsDragging(false)
-    }
+  const onDragLeave = useCallback((e: React.DragEvent<HTMLElement>) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return
+    setIsDragging(false)
   }, [])
 
   const onDrop = useCallback(
@@ -78,18 +96,18 @@ export default function Scan() {
 
   // Preprocess in background so the user can preview the enhanced image before OCR.
   useEffect(() => {
-    if (state.mode !== 'preview') return
-    let cancelled = false
-    preprocessReceiptImage(state.dataUrl)
-      .then((processedUrl) => {
-        if (!cancelled) {
+    if (state.mode === 'preview') {
+      let cancelled = false
+      preprocessReceiptImage(state.dataUrl)
+        .then((processedUrl) => {
+          if (cancelled) return
           setState((prev) =>
             prev.mode === 'preview' ? { ...prev, processedUrl } : prev,
           )
-        }
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
+        })
+        .catch(() => {})
+      return () => { cancelled = true }
+    }
   }, [state.mode === 'preview' ? state.dataUrl : null])
 
   const startScan = useCallback(
@@ -165,46 +183,84 @@ export default function Scan() {
     <div className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>Scan Receipt</h1>
-        <p className={styles.sub}>
-          {state.mode === 'idle'
-            ? 'Upload or photograph your receipt. OCR runs in your browser — nothing is uploaded.'
-            : state.mode === 'preview'
-            ? 'Looks good? Tap Scan to extract items automatically.'
-            : state.mode === 'scanning'
-            ? 'Running OCR in your browser…'
-            : state.mode === 'parsed'
-            ? 'Check items and receipt math before continuing.'
-            : 'Something went wrong with OCR.'}
-        </p>
+        <p className={styles.sub}>{modeSubtitle(state.mode)}</p>
       </header>
 
-      {/* ── Idle: upload zone ─────────────────────────────────────────── */}
+      {/* ── Idle: capture options ─────────────────────────────────────── */}
       {state.mode === 'idle' && (
         <>
-          <div
-            className={`${styles.uploadZone} ${isDragging ? styles.uploadZoneDragging : ''}`}
+          {heicWarning && (
+            <div className={styles.heicWarning}>
+              <span className={styles.heicIcon}>⚠️</span>
+              <div className={styles.heicBody}>
+                <strong>HEIC not supported in browser</strong>
+                <p>On iPhone: Settings → Camera → Formats → Most Compatible to shoot JPEG instead.</p>
+              </div>
+              <button
+                className={styles.heicDismiss}
+                onClick={() => setHeicWarning(false)}
+                aria-label="Dismiss warning"
+              >✕</button>
+            </div>
+          )}
+
+          <section
+            className={`${styles.captureSection} ${isDragging ? styles.captureSectionDragging : ''}`}
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
             onDragEnter={onDragEnter}
             onDragLeave={onDragLeave}
-            onClick={() => fileRef.current?.click()}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && fileRef.current?.click()}
+            aria-label="Drop receipt image here"
           >
-            <span className={styles.uploadIcon}>📷</span>
-            <p className={styles.uploadLabel}>Tap to take photo or choose file</p>
-            <p className={styles.uploadHint}>JPEG · PNG · HEIC — drag &amp; drop also works</p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={onFileChange}
-              className={styles.hiddenInput}
-              aria-label="Upload receipt image"
-            />
-          </div>
+            {isDragging ? (
+              <div className={styles.dropOverlay}>
+                <UploadIcon />
+                <span>Drop photo here</span>
+              </div>
+            ) : (
+              <>
+                <div className={styles.captureCards}>
+                  <button
+                    type="button"
+                    className={`${styles.captureCard} ${styles.captureCardCamera}`}
+                    onClick={() => cameraRef.current?.click()}
+                  >
+                    <span className={styles.captureCardIcon}><CameraIcon size={28} /></span>
+                    <span className={styles.captureCardLabel}>Take Photo</span>
+                    <span className={styles.captureCardHint}>Opens camera</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.captureCard}
+                    onClick={() => galleryRef.current?.click()}
+                  >
+                    <span className={styles.captureCardIcon}><GalleryIcon /></span>
+                    <span className={styles.captureCardLabel}>Browse Library</span>
+                    <span className={styles.captureCardHint}>Gallery or files</span>
+                  </button>
+                </div>
+                <p className={styles.dropHint}>drag &amp; drop also works</p>
+              </>
+            )}
+          </section>
+
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onFileChange}
+            className={styles.hiddenInput}
+            aria-label="Take photo with camera"
+          />
+          <input
+            ref={galleryRef}
+            type="file"
+            accept="image/*"
+            onChange={onFileChange}
+            className={styles.hiddenInput}
+            aria-label="Choose from gallery or files"
+          />
 
           <div className={styles.divider}><span>or skip OCR</span></div>
 
@@ -234,7 +290,7 @@ export default function Scan() {
           <div className={styles.previewToolbar}>
             <button
               type="button"
-              className={`${styles.previewToggle} ${!state.showProcessed ? styles.previewToggleActive : ''}`}
+              className={`${styles.previewToggle} ${state.showProcessed ? '' : styles.previewToggleActive}`}
               onClick={() => setState((prev) =>
                 prev.mode === 'preview' ? { ...prev, showProcessed: false } : prev,
               )}
@@ -260,7 +316,7 @@ export default function Scan() {
           <div className={styles.photoActions}>
             <button
               className="btn btn-secondary"
-              onClick={() => fileRef.current?.click()}
+              onClick={() => setState({ mode: 'idle' })}
             >
               <CameraIcon /> Retake
             </button>
@@ -317,7 +373,7 @@ export default function Scan() {
           reconciliation={state.reconciliation}
           currency={draft.receipt.currency}
           onConfirm={() => confirmScan(state.parseResult, state.rawText)}
-          onRetake={() => fileRef.current?.click()}
+          onRetake={() => setState({ mode: 'idle' })}
           onSkip={() => navigate('/review')}
         />
       )}
@@ -328,23 +384,11 @@ export default function Scan() {
           dataUrl={state.dataUrl}
           message={state.message}
           onRetry={() => startScan(state.dataUrl)}
-          onRetake={() => fileRef.current?.click()}
+          onRetake={() => setState({ mode: 'idle' })}
           onSkip={() => navigate('/review')}
         />
       )}
 
-      {/* Hidden file input reused across states */}
-      {state.mode !== 'idle' && (
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          onChange={onFileChange}
-          className={styles.hiddenInput}
-          aria-label="Upload receipt image"
-        />
-      )}
     </div>
   )
 }
@@ -364,12 +408,24 @@ interface ParsedViewProps {
 
 function ParsedView({
   dataUrl, rawText, parseResult, reconciliation, currency, onConfirm, onRetake, onSkip,
-}: ParsedViewProps) {
+}: Readonly<ParsedViewProps>) {
   const [showRaw, setShowRaw] = useState(false)
   const { items } = parseResult
   const hasItems = items.length > 0
   const mathOk = reconciliation.status === 'ok'
   const mathWarn = reconciliation.status === 'warn'
+
+  let badgeClass = styles.thumbBadgeFail
+  if (mathOk) badgeClass = styles.thumbBadgeOk
+  else if (mathWarn) badgeClass = styles.thumbBadgeWarn
+
+  let badgeText = ' Math mismatch'
+  if (mathOk) badgeText = ' Math checks out'
+  else if (mathWarn) badgeText = ' Review math'
+
+  let mathCardMod = styles.mathFail
+  if (mathOk) mathCardMod = styles.mathOk
+  else if (mathWarn) mathCardMod = styles.mathWarn
 
   return (
     <div className={styles.parsedBlock}>
@@ -379,12 +435,12 @@ function ParsedView({
         <div className={styles.thumbMeta}>
           {hasItems ? (
             <>
-              <span className={mathOk ? styles.thumbBadgeOk : mathWarn ? styles.thumbBadgeWarn : styles.thumbBadgeFail}>
+              <span className={badgeClass}>
                 {mathOk ? <CheckIcon /> : <WarnIcon />}
-                {mathOk ? ' Math checks out' : mathWarn ? ' Review math' : ' Math mismatch'}
+                {badgeText}
               </span>
               <p className={styles.thumbCount}>
-                Found <strong>{items.length}</strong> item{items.length !== 1 ? 's' : ''}
+                Found <strong>{items.length}</strong> item{items.length === 1 ? '' : 's'}
               </p>
             </>
           ) : (
@@ -402,7 +458,7 @@ function ParsedView({
 
       {/* Receipt math reconciliation */}
       {hasItems && reconciliation.lines.length > 1 && (
-        <div className={`card ${styles.mathCard} ${mathOk ? styles.mathOk : mathWarn ? styles.mathWarn : styles.mathFail}`}>
+        <div className={`card ${styles.mathCard} ${mathCardMod}`}>
           <h3 className={styles.mathTitle}>Receipt math</h3>
           <ul className={styles.mathLines}>
             {reconciliation.lines.map((line, i) => (
@@ -429,7 +485,7 @@ function ParsedView({
       {hasItems && (
         <ul className={styles.parsedList}>
           {items.map((item, i) => (
-            <li key={i} className={styles.parsedItem}>
+            <li key={`${item.name}-${i}`} className={styles.parsedItem}>
               <span className={styles.parsedName}>
                 {item.name}
                 <span className={styles.parsedQty}>
@@ -485,9 +541,9 @@ interface ErrorViewProps {
   onSkip: () => void
 }
 
-function ErrorView({ dataUrl, message, onRetry, onRetake, onSkip }: ErrorViewProps) {
+function ErrorView({ dataUrl, message, onRetry, onRetake, onSkip }: Readonly<ErrorViewProps>) {
   const [showDetail, setShowDetail] = useState(false)
-  const isOffline = !navigator.onLine || message.toLowerCase().includes('fetch')
+  const isOffline = navigator.onLine === false || message.toLowerCase().includes('fetch')
 
   return (
     <div className={styles.errorBlock}>
@@ -531,11 +587,31 @@ function PencilIcon() {
   )
 }
 
-function CameraIcon() {
+function CameraIcon({ size = 16 }: Readonly<{ size?: number }>) {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
       <circle cx="12" cy="13" r="4"/>
+    </svg>
+  )
+}
+
+function GalleryIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <polyline points="21 15 16 10 5 21"/>
+    </svg>
+  )
+}
+
+function UploadIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="16 16 12 12 8 16"/>
+      <line x1="12" y1="12" x2="12" y2="21"/>
+      <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
     </svg>
   )
 }
@@ -570,7 +646,7 @@ function WarnIcon() {
   )
 }
 
-function ChevronIcon({ open }: { open: boolean }) {
+function ChevronIcon({ open }: Readonly<{ open: boolean }>) {
   return (
     <svg
       width="13" height="13"

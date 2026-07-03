@@ -12,46 +12,137 @@
 .title  { font-size: 1.5rem; font-weight: 700; }
 .sub    { font-size: 0.875rem; color: var(--color-muted); }
 
-/* ── Upload zone (idle state) ─────────────────────────────────────── */
-.uploadZone {
+/* ── Capture section (idle state) ────────────────────────────────── */
+.captureSection {
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  background: var(--color-surface);
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.captureSectionDragging {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+  transform: scale(1.01);
+  box-shadow: 0 0 0 4px rgba(108,99,255,0.12);
+}
+
+.captureCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.captureCard {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
-  padding: 2.75rem 1.25rem 2.25rem;
-  background: var(--color-surface);
-  border: 2px dashed var(--color-primary);
-  border-radius: var(--radius-lg);
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.5rem 0.75rem 1.25rem;
+  min-height: 130px;
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background 0.15s;
-  text-align: center;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
   -webkit-tap-highlight-color: transparent;
 }
-.uploadZone:hover,
-.uploadZone:focus-visible {
+
+.captureCard:hover,
+.captureCard:focus-visible {
+  border-color: var(--color-primary);
   background: var(--color-primary-light);
   outline: none;
 }
 
-.uploadZoneDragging {
-  background: var(--color-primary-light);
-  border-color: var(--color-primary-dark);
-  transform: scale(1.02);
-  box-shadow: 0 0 0 4px rgba(108,99,255,0.12);
+.captureCard:active {
+  transform: scale(0.97);
 }
 
-.uploadIcon {
-  font-size: 2.75rem;
-  margin-bottom: 0.1rem;
-  display: block;
-  animation: iconPulse 2.8s ease-in-out infinite;
+.captureCardIcon {
+  color: var(--color-primary-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.uploadLabel {
-  font-size: 0.95rem;
-  font-weight: 600;
+
+.captureCardLabel {
+  font-size: 0.9rem;
+  font-weight: 700;
   color: var(--color-text);
 }
-.uploadHint  { font-size: 0.78rem; color: var(--color-muted); }
+
+.captureCardHint {
+  font-size: 0.73rem;
+  color: #5C5B7E;
+}
+
+/* Hide camera card on desktop (mouse pointer = fine); make browse card fill the row */
+@media (pointer: fine) {
+  .captureCardCamera { display: none; }
+  .captureCards { grid-template-columns: 1fr; }
+}
+
+.dropHint {
+  margin-top: 0.875rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #5C5B7E;
+}
+
+.dropOverlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  min-height: 150px;
+  color: var(--color-primary-dark);
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* ── HEIC warning ─────────────────────────────────────────────────── */
+.heicWarning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  background: #FFF8E1;
+  border: 1.5px solid #F6C344;
+  border-radius: var(--radius-md);
+}
+
+.heicIcon { font-size: 1.1rem; flex-shrink: 0; padding-top: 0.05rem; }
+
+.heicBody {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.heicBody strong {
+  font-size: 0.875rem;
+  color: #7B5800;
+}
+
+.heicBody p {
+  font-size: 0.8rem;
+  color: #7B5800;
+  line-height: 1.4;
+}
+
+.heicDismiss {
+  font-size: 0.8rem;
+  color: #7B5800;
+  padding: 0.1rem 0.2rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+}
 
 .hiddenInput {
   position: fixed;
@@ -110,7 +201,7 @@
 .previewToggleActive {
   border-color: var(--color-primary);
   background: var(--color-primary-light);
-  color: var(--color-primary);
+  color: var(--color-primary-dark);
 }
 
 .previewHint {
@@ -215,12 +306,12 @@
 
 .thumbBadgeOk {
   background: #EAFAF1;
-  color: #27AE60;
+  color: #166534;
 }
 
 .thumbBadgeWarn {
   background: #FFF8E1;
-  color: #E67E22;
+  color: #92400E;
 }
 
 .thumbBadgeFail {
@@ -345,7 +436,7 @@
   margin-top: 0.25rem;
 }
 .rawToggle:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-dark);
   border-color: var(--color-primary);
   background: var(--color-primary-light);
 }
