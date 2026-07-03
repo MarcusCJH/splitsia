@@ -1,12 +1,12 @@
-// Browser-side receipt photo preprocessing for Tesseract.js.
-// Pipeline: grayscale → CLAHE → crop dark margins → adaptive binarization.
+// Browser-side receipt photo preprocessing for PaddleOCR.
+// Pipeline: grayscale → crop dark margins → (optional CLAHE) → (optional binarize).
 //
-// Memory budget (worst case at MAX=1200, portrait 900×1200):
-//   canvas ImageData : 900×1200×4 =  4.3 MB
-//   CLAHE gray+output: 900×1200×1 =  1.1 MB ×2
-//   Int32 integral   : 901×1201×4 =  4.3 MB   ← single integral, not two Float64s
-//   output ImageData : 900×1200×4 =  4.3 MB
-//   Total peak       :            ≈ 15 MB   (was 140 MB with Sauvola at 2400px)
+// Memory budget (worst case at MAX=1600, portrait 1200×1600):
+//   canvas ImageData : 1200×1600×4 =  7.7 MB
+//   CLAHE gray+output: 1200×1600×1 =  1.9 MB ×2
+//   Int32 integral   : 1201×1601×4 =  7.7 MB   ← single integral, not two Float64s
+//   output ImageData : 1200×1600×4 =  7.7 MB
+//   Total peak       :            ≈ 27 MB
 
 function applyClahe(gray: Uint8Array, width: number, height: number): void {
   const tilesX = 8
@@ -69,6 +69,7 @@ function applyClahe(gray: Uint8Array, width: number, height: number): void {
 function cropToContent(imageData: ImageData, pad = 12): ImageData {
   const { data, width, height } = imageData
 
+  // Average the four corner pixels to estimate background color.
   const corners = [
     0,
     (width - 1) * 4,
@@ -88,7 +89,11 @@ function cropToContent(imageData: ImageData, pad = 12): ImageData {
     for (let x = 0; x < width; x++) {
       const i = (y * width + x) * 4
       const v = data[i]
-      if (Math.abs(v - bg) > 25 || v < 210) {
+      // A pixel is "content" if it differs from the corner background by more
+      // than 25 grey levels. No extra "|| v < 210" rule: that clause was
+      // designed for light-background photos but causes dark backgrounds (where
+      // bg ≈ 0) to mark ALL pixels as content, preventing any cropping.
+      if (Math.abs(v - bg) > 25) {
         minX = Math.min(minX, x)
         minY = Math.min(minY, y)
         maxX = Math.max(maxX, x)
@@ -160,8 +165,8 @@ function adaptiveBinarize(imageData: ImageData, radius = 25, bias = 8): ImageDat
   return output
 }
 
-function loadScaledGray(dataUrl: string): Promise<{
-  gray: Uint8Array
+function scaleAndGrayscale(dataUrl: string): Promise<{
+  imageData: ImageData
   w: number
   h: number
 }> {
@@ -189,43 +194,73 @@ function loadScaledGray(dataUrl: string): Promise<{
       ctx.filter = 'grayscale(1) contrast(1.15)'
       ctx.drawImage(img, 0, 0, w, h)
 
-      let imageData = ctx.getImageData(0, 0, w, h)
-      const gray = new Uint8Array(w * h)
-      for (let i = 0; i < w * h; i++) gray[i] = imageData.data[i * 4]
-      applyClahe(gray, w, h)
-
-      resolve({ gray, w, h })
+      // Crop BEFORE CLAHE: background detection uses raw grayscale values.
+      // After CLAHE, dark corners get stretched to near-zero, making bg ≈ 0
+      // and the entire image appear as "content" — no crop happens.
+      const imageData = cropToContent(ctx.getImageData(0, 0, w, h))
+      resolve({ imageData, w: imageData.width, h: imageData.height })
     }
     img.onerror = reject
     img.src = dataUrl
   })
 }
 
-function grayToDataUrl(gray: Uint8Array, w: number, h: number, binarize: boolean): string {
-  let imageData = new ImageData(w, h)
-  for (let i = 0; i < w * h; i++) {
-    imageData.data[i * 4] = gray[i]
-    imageData.data[i * 4 + 1] = gray[i]
-    imageData.data[i * 4 + 2] = gray[i]
-    imageData.data[i * 4 + 3] = 255
-  }
-
-  imageData = cropToContent(imageData)
+/**
+ * Scale + CSS grayscale + crop (NO CLAHE).
+ * Used for line segmentation: CLAHE equalises local brightness, which
+ * destroys the global row-mean differences needed to detect text lines.
+ */
+export async function preprocessRawGrayscale(dataUrl: string): Promise<string> {
+  const { imageData, w, h } = await scaleAndGrayscale(dataUrl)
   const canvas = document.createElement('canvas')
-  canvas.width = imageData.width
-  canvas.height = imageData.height
-  const ctx = canvas.getContext('2d')!
-  ctx.putImageData(binarize ? adaptiveBinarize(imageData) : imageData, 0, 0)
+  canvas.width = w
+  canvas.height = h
+  canvas.getContext('2d')!.putImageData(imageData, 0, 0)
   return canvas.toDataURL('image/png')
 }
 
-/** CLAHE + crop, no binarization — often better on shadowed phone photos. */
+/** CLAHE + crop, no binarization — enhances local contrast for OCR display. */
 export async function preprocessReceiptImageGrayscale(dataUrl: string): Promise<string> {
-  const { gray, w, h } = await loadScaledGray(dataUrl)
-  return grayToDataUrl(gray, w, h, false)
+  const { imageData, w, h } = await scaleAndGrayscale(dataUrl)
+  const gray = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) gray[i] = imageData.data[i * 4]
+  applyClahe(gray, w, h)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext('2d')!
+  const out = new ImageData(w, h)
+  for (let i = 0; i < w * h; i++) {
+    out.data[i * 4] = gray[i]
+    out.data[i * 4 + 1] = gray[i]
+    out.data[i * 4 + 2] = gray[i]
+    out.data[i * 4 + 3] = 255
+  }
+  ctx.putImageData(out, 0, 0)
+  return canvas.toDataURL('image/png')
 }
 
 /** CLAHE + crop + adaptive binarization — best for clean scans. */
-export function preprocessReceiptImage(dataUrl: string): Promise<string> {
-  return loadScaledGray(dataUrl).then(({ gray, w, h }) => grayToDataUrl(gray, w, h, true))
+export async function preprocessReceiptImage(dataUrl: string): Promise<string> {
+  const { imageData, w, h } = await scaleAndGrayscale(dataUrl)
+  const gray = new Uint8Array(w * h)
+  for (let i = 0; i < w * h; i++) gray[i] = imageData.data[i * 4]
+  applyClahe(gray, w, h)
+
+  const claheImageData = new ImageData(w, h)
+  for (let i = 0; i < w * h; i++) {
+    claheImageData.data[i * 4] = gray[i]
+    claheImageData.data[i * 4 + 1] = gray[i]
+    claheImageData.data[i * 4 + 2] = gray[i]
+    claheImageData.data[i * 4 + 3] = 255
+  }
+
+  const binarized = adaptiveBinarize(claheImageData)
+  const canvas = document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  canvas.getContext('2d')!.putImageData(binarized, 0, 0)
+  return canvas.toDataURL('image/png')
 }
+

@@ -99,8 +99,19 @@ function removeFooterAmountItems(
       if (matchChargePattern(it.name) || isFooterGarbageName(it.name)) return false
     }
     if (isFooterGarbageName(it.name)) return false
-    if (looksLikeServiceLabel(it.name) && it.totalPrice < 100) return false
-    if (looksLikeGstLabel(it.name) && it.totalPrice < 100) return false
+    if (looksLikeServiceLabel(it.name) && it.totalPrice < 100) {
+      // Promote to charge so it isn't silently discarded when inferTaxes is false.
+      if (!hasCharge(charges, 'service_charge')) {
+        charges.push({ type: 'service_charge', label: it.name, amount: it.totalPrice })
+      }
+      return false
+    }
+    if (looksLikeGstLabel(it.name) && it.totalPrice < 100) {
+      if (!hasCharge(charges, 'gst')) {
+        charges.push({ type: 'gst', label: it.name, amount: it.totalPrice })
+      }
+      return false
+    }
     return true
   })
 }

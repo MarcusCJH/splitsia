@@ -7,9 +7,9 @@ export default defineConfig({
   plugins: [react()],
   base: '/SplitSia/',
   optimizeDeps: {
-    // tesseract.js is CJS; Vite must pre-bundle it to ESM for the dev server.
-    // The production build handles it fine via rollup regardless.
-    include: ['tesseract.js'],
+    // Exclude WASM-backed packages — onnxruntime-web registers WASM backends
+    // at import time and breaks when Vite's CJS-to-ESM shim wraps it.
+    exclude: ['onnxruntime-web', 'ppu-paddle-ocr'],
   },
   test: {
     environment: 'node',

@@ -1,74 +1,42 @@
-import { createWorker, PSM } from 'tesseract.js'
-import type { LoggerMessage } from 'tesseract.js'
+import { PaddleOcrService } from 'ppu-paddle-ocr/web'
 import { parseReceipt } from './parseReceipt'
 import type { ParseResult } from './parseReceipt'
 import { reconcileReceipt } from './receiptReconcile'
 import type { Reconciliation } from './receiptReconcile'
-import { preprocessReceiptImage, preprocessReceiptImageGrayscale } from './receiptImage'
+import { preprocessReceiptImageGrayscale, preprocessRawGrayscale } from './receiptImage'
 
-const PSM_CASCADE = [
-  PSM.SINGLE_COLUMN,
-  PSM.SPARSE_TEXT,
-  PSM.SINGLE_BLOCK,
-  PSM.RAW_LINE,
-] as const
+// Singleton — reused across scans within the same session.
+let _service: PaddleOcrService | null = null
 
-const SCORE_EARLY_EXIT = 45
+async function getService(
+  onUpdate: (status: string, pct: number) => void,
+): Promise<PaddleOcrService> {
+  if (_service) return _service
 
-const RECEIPT_INIT = {
-  load_system_dawg: '0',
-  load_freq_dawg: '0',
-  load_unambig_dawg: '0',
-  load_punc_dawg: '0',
-  load_number_dawg: '0',
-  load_bigram_dawg: '0',
-} as const
-
-export function scoreParsedReceipt(text: string): number {
-  return scoreParseResult(parseReceipt(text))
+  onUpdate('Downloading OCR model…', 5)
+  const svc = new PaddleOcrService({
+    // Force WASM so it works on iOS Safari (no WebGPU there yet).
+    session: { executionProviders: ['wasm'] },
+  })
+  await svc.initialize()
+  onUpdate('OCR model ready', 42)
+  _service = svc
+  return svc
 }
 
-export function scoreParseResult(result: ParseResult): number {
-  const { items, charges, warnings } = result
-  let score = 0
-
-  for (const item of items) {
-    const alpha = (item.name.match(/[a-zA-Z]/g) ?? []).length
-    const ratio = item.name.length > 0 ? alpha / item.name.length : 0
-    if (ratio < 0.4 || item.name.length > 55) {
-      score -= 12
-      continue
+function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      canvas.getContext('2d')!.drawImage(img, 0, 0)
+      resolve(canvas)
     }
-    if (item.totalPrice > 500) {
-      score -= 8
-      continue
-    }
-    score += 10
-    if (item.confidence === 'high') score += 4
-    if (item.quantity > 1) score += 2
-  }
-
-  score += charges.filter((c) => c.type === 'subtotal').length * 25
-  score += charges.filter((c) => c.type === 'total').length * 25
-  score += charges.filter((c) => ['gst', 'service_charge', 'discount'].includes(c.type)).length * 10
-  score -= warnings.length * 8
-
-  const recon = reconcileReceipt(result)
-  if (recon.status === 'ok') score += 35
-  else if (recon.totalDiff !== null && recon.totalDiff <= 0.03) score += 25
-  else if (recon.status === 'warn') score += 10
-  else score -= 20
-
-  const subtotal = charges.find((c) => c.type === 'subtotal')
-  if (subtotal && subtotal.amount > 0) {
-    const itemSum = items.reduce((s, it) => s + it.totalPrice, 0)
-    const diff = Math.abs(itemSum - subtotal.amount)
-    if (diff < 1) score += 15
-    else if (diff < 30) score += 3
-    else score -= 10
-  }
-
-  return score
+    img.onerror = reject
+    img.src = dataUrl
+  })
 }
 
 export interface OcrResult {
@@ -78,90 +46,60 @@ export interface OcrResult {
   processedImageUrl: string
 }
 
+// Kept for the benchmark test which scores parse quality.
+export function scoreParseResult(result: ParseResult): number {
+  const { items, charges, warnings } = result
+  let score = 0
+  for (const item of items) {
+    const alpha = (item.name.match(/[a-zA-Z]/g) ?? []).length
+    const ratio = item.name.length > 0 ? alpha / item.name.length : 0
+    if (ratio < 0.4 || item.name.length > 55) { score -= 12; continue }
+    if (item.totalPrice > 500) { score -= 8; continue }
+    score += 10
+    if (item.confidence === 'high') score += 4
+    if (item.quantity > 1) score += 2
+  }
+  score += charges.filter((c) => c.type === 'subtotal').length * 25
+  score += charges.filter((c) => c.type === 'total').length * 25
+  score += charges.filter((c) => ['gst', 'service_charge', 'discount'].includes(c.type)).length * 10
+  score -= warnings.length * 8
+  return score
+}
+
+export function scoreParsedReceipt(text: string): number {
+  return scoreParseResult(parseReceipt(text))
+}
+
 export async function runReceiptOcr(
   dataUrl: string,
   onUpdate: (status: string, progress: number) => void,
   alreadyProcessed?: string,
 ): Promise<OcrResult> {
+  // Prepare the display image (CLAHE-enhanced) and the OCR input (raw gray, cropped).
   let processedImageUrl: string
-  let grayscaleImageUrl: string | undefined
+  let ocrImageUrl: string
   if (alreadyProcessed) {
     processedImageUrl = alreadyProcessed
+    ocrImageUrl = await preprocessRawGrayscale(dataUrl)
   } else {
     onUpdate('Preparing image…', 2)
-    const [binarized, grayscale] = await Promise.all([
-      preprocessReceiptImage(dataUrl),
+    ;[processedImageUrl, ocrImageUrl] = await Promise.all([
       preprocessReceiptImageGrayscale(dataUrl),
+      preprocessRawGrayscale(dataUrl),
     ])
-    processedImageUrl = binarized
-    grayscaleImageUrl = grayscale
   }
 
-  const ocrImages = grayscaleImageUrl
-    ? [processedImageUrl, grayscaleImageUrl]
-    : [processedImageUrl]
+  const service = await getService(onUpdate)
 
-  const worker = await createWorker('eng', 1, {
-    logger: (m: LoggerMessage) => mapLoggerProgress(m, onUpdate),
-  }, RECEIPT_INIT)
+  onUpdate('Reading receipt…', 45)
+  const ocrCanvas = await dataUrlToCanvas(ocrImageUrl)
+  const result = await service.recognize(ocrCanvas)
 
-  try {
-    let best = { text: '', score: -1 }
+  onUpdate('Checking receipt math…', 95)
+  // PaddleOcrResult.text already contains all lines joined with newlines.
+  const rawText = result.text.trim()
 
-    for (const imageUrl of ocrImages) {
-      for (let i = 0; i < PSM_CASCADE.length; i++) {
-        const psm = PSM_CASCADE[i]
-        onUpdate(
-          `Reading receipt (${i + 1}/${PSM_CASCADE.length})…`,
-          48 + Math.round((i / PSM_CASCADE.length) * 40),
-        )
-
-        await worker.setParameters({
-          tessedit_pageseg_mode: psm,
-          user_defined_dpi: '300',
-          preserve_interword_spaces: '1',
-        })
-
-        const { data } = await worker.recognize(imageUrl)
-        const text = data.text ?? ''
-        const score = scoreParsedReceipt(text)
-
-        if (score > best.score) best = { text, score }
-        if (score >= SCORE_EARLY_EXIT) break
-      }
-      if (best.score >= SCORE_EARLY_EXIT) break
-    }
-
-    onUpdate('Checking receipt math…', 95)
-    const parseResult = parseReceipt(best.text)
-    const reconciliation = reconcileReceipt(parseResult)
-    return { rawText: best.text, parseResult, reconciliation, processedImageUrl }
-  } finally {
-    await worker.terminate()
-  }
-}
-
-function mapLoggerProgress(
-  m: LoggerMessage,
-  onUpdate: (status: string, progress: number) => void,
-): void {
-  const { status, progress } = m
-  let pct = 0
-  let label = ''
-
-  if (status === 'loading tesseract core') {
-    pct = 8
-    label = 'Loading OCR engine…'
-  } else if (status === 'initializing tesseract') {
-    pct = 13
-    label = 'Initializing…'
-  } else if (status === 'loading language traineddata') {
-    pct = 13 + progress * 30
-    label = 'Downloading language data…'
-  } else if (status === 'initializing api') {
-    pct = 45
-    label = 'Almost ready…'
-  }
-
-  if (label) onUpdate(label, Math.round(pct))
+  const parseResult = parseReceipt(rawText)
+  const reconciliation = reconcileReceipt(parseResult)
+  return { rawText, parseResult, reconciliation, processedImageUrl }
 }
