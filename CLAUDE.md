@@ -12,7 +12,7 @@ Let users photograph a receipt, extract items via in-browser OCR, assign items t
 - Do not add login or authentication of any kind.
 - Do not use paid APIs or any API that requires a key.
 - Receipt images must never leave the user's device.
-- OCR must run entirely in the browser (Tesseract.js).
+- OCR must run entirely in the browser (PaddleOCR via ONNX Runtime Web).
 - Every screen must be designed mobile-first. Desktop is a secondary concern.
 - Correction must be easy — OCR output will always have errors. Every extracted item must be editable before splitting.
 
@@ -23,7 +23,7 @@ Let users photograph a receipt, extract items via in-browser OCR, assign items t
 | Framework | React 18 |
 | Build tool | Vite 6 |
 | Language | TypeScript (strict) |
-| OCR | Tesseract.js (browser) |
+| OCR | PaddleOCR via `ppu-paddle-ocr` (in-browser, ONNX Runtime Web) |
 | Persistence | localStorage (draft + history) |
 | Routing | react-router-dom v6, HashRouter |
 | Styles | CSS Modules + global CSS variables |
@@ -67,6 +67,20 @@ ReceiptSession
   ├── tip           number
   └── rawImageDataUrl?  stored locally, never uploaded
 ```
+
+## Responsive Layout
+
+The app is mobile-first but has a full adaptive desktop layout at `≥768px`.
+
+**Navigation:** `BottomNav` renders as a fixed bottom tab bar on mobile and transforms into a 220px left sidebar on desktop (defined by `--sidebar-width` in `index.css`). `AppShell` offsets `main` by `margin-left: var(--sidebar-width)` on desktop.
+
+**Page layouts on desktop:**
+- **Home** — centered single column, `max-width: 680px`
+- **Review** — two-column grid: items list (left, `1fr`) + charges/total/CTA (right, `320px`, sticky)
+- **Split** — two-column grid: people panel (left, `340px`, sticky) + item assignment (right, `1fr`)
+- **Result** — person cards in `auto-fill, minmax(280px, 1fr)` grid
+
+Two-column pages use `display: contents` on `.leftCol`/`.rightCol` wrappers at mobile sizes so the existing flex layout is unaffected. On desktop, the wrappers switch to `display: flex`.
 
 ## Coding Style
 

@@ -11,6 +11,7 @@ A mobile-first PWA for scanning receipts, splitting costs, and sharing results w
 - GST/service charge splits proportionally to each person's subtotal
 - Per-person itemised breakdown you can copy as plain text to share
 - Draft auto-saves to localStorage; completed sessions appear on the home screen
+- Adaptive layout: mobile bottom nav + two-column desktop views at ≥768px
 
 ## User Flow
 
@@ -78,7 +79,7 @@ A few things to keep in mind:
 
 - No backend, login, or paid APIs — the app must remain fully static
 - Receipt images must never leave the user's device
-- Mobile-first: every UI change should look good on a small screen first
+- Mobile-first: every UI change should look good on a small screen first; the desktop breakpoint is `≥768px` — see the Responsive Layout section in `CLAUDE.md`
 - Avoid introducing new major dependencies without discussing it in the PR first
 
 ## Privacy
