@@ -31,7 +31,9 @@ function dataUrlToCanvas(dataUrl: string): Promise<HTMLCanvasElement> {
       const canvas = document.createElement('canvas')
       canvas.width = img.naturalWidth
       canvas.height = img.naturalHeight
-      canvas.getContext('2d')!.drawImage(img, 0, 0)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) { reject(new Error('Canvas 2D context unavailable — device may be low on memory.')); return }
+      ctx.drawImage(img, 0, 0)
       resolve(canvas)
     }
     img.onerror = reject

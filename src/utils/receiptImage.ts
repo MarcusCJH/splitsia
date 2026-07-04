@@ -1,4 +1,11 @@
 // Browser-side receipt photo preprocessing for PaddleOCR.
+// On mobile, getContext('2d') can return null when the device is low on memory.
+function ctx2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D context unavailable — device may be low on memory.')
+  return ctx
+}
+
 // Pipeline: grayscale → crop dark margins → (optional CLAHE) → (optional binarize).
 //
 // Memory budget (worst case at MAX=1600, portrait 1200×1600):
@@ -7,6 +14,59 @@
 //   Int32 integral   : 1201×1601×4 =  7.7 MB   ← single integral, not two Float64s
 //   output ImageData : 1200×1600×4 =  7.7 MB
 //   Total peak       :            ≈ 27 MB
+
+function buildTileHistogram(
+  gray: Uint8Array, width: number,
+  x0: number, y0: number, x1: number, y1: number,
+): { hist: Uint32Array; count: number } {
+  const hist = new Uint32Array(256)
+  let count = 0
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      hist[gray[y * width + x]]++
+      count++
+    }
+  }
+  return { hist, count }
+}
+
+function clipAndRedistribute(hist: Uint32Array, count: number, clipLimit: number): void {
+  const clipThreshold = Math.max(1, Math.floor((count / 256) * clipLimit))
+  let excess = 0
+  for (let i = 0; i < 256; i++) {
+    if (hist[i] > clipThreshold) {
+      excess += hist[i] - clipThreshold
+      hist[i] = clipThreshold
+    }
+  }
+  const redist = Math.floor(excess / 256)
+  for (let i = 0; i < 256; i++) hist[i] += redist
+}
+
+function buildClaheLut(hist: Uint32Array, count: number): Uint8Array {
+  const cdf = new Uint32Array(256)
+  cdf[0] = hist[0]
+  for (let i = 1; i < 256; i++) cdf[i] = cdf[i - 1] + hist[i]
+  const cdfMin = cdf.find((v) => v > 0) ?? 0
+  const scale = cdfMin < count ? 255 / (count - cdfMin) : 0
+  const lut = new Uint8Array(256)
+  for (let i = 0; i < 256; i++) {
+    lut[i] = scale > 0 ? Math.round((cdf[i] - cdfMin) * scale) : i
+  }
+  return lut
+}
+
+function applyLutToTile(
+  gray: Uint8Array, output: Uint8Array, lut: Uint8Array, width: number,
+  bounds: { x0: number; y0: number; x1: number; y1: number },
+): void {
+  const { x0, y0, x1, y1 } = bounds
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      output[y * width + x] = lut[gray[y * width + x]]
+    }
+  }
+}
 
 function applyClahe(gray: Uint8Array, width: number, height: number): void {
   const tilesX = 8
@@ -22,44 +82,10 @@ function applyClahe(gray: Uint8Array, width: number, height: number): void {
       const y0 = ty * tileH
       const x1 = Math.min(width, x0 + tileW)
       const y1 = Math.min(height, y0 + tileH)
-
-      const hist = new Uint32Array(256)
-      let count = 0
-      for (let y = y0; y < y1; y++) {
-        for (let x = x0; x < x1; x++) {
-          hist[gray[y * width + x]]++
-          count++
-        }
-      }
-
-      const clipThreshold = Math.max(1, Math.floor((count / 256) * clipLimit))
-      let excess = 0
-      for (let i = 0; i < 256; i++) {
-        if (hist[i] > clipThreshold) {
-          excess += hist[i] - clipThreshold
-          hist[i] = clipThreshold
-        }
-      }
-      const redist = Math.floor(excess / 256)
-      for (let i = 0; i < 256; i++) hist[i] += redist
-
-      const cdf = new Uint32Array(256)
-      cdf[0] = hist[0]
-      for (let i = 1; i < 256; i++) cdf[i] = cdf[i - 1] + hist[i]
-
-      const cdfMin = cdf.find((v) => v > 0) ?? 0
-      const scale = cdfMin < count ? (255 / (count - cdfMin)) : 0
-
-      const lut = new Uint8Array(256)
-      for (let i = 0; i < 256; i++) {
-        lut[i] = scale > 0 ? Math.round((cdf[i] - cdfMin) * scale) : i
-      }
-
-      for (let y = y0; y < y1; y++) {
-        for (let x = x0; x < x1; x++) {
-          output[y * width + x] = lut[gray[y * width + x]]
-        }
-      }
+      const { hist, count } = buildTileHistogram(gray, width, x0, y0, x1, y1)
+      clipAndRedistribute(hist, count, clipLimit)
+      const lut = buildClaheLut(hist, count)
+      applyLutToTile(gray, output, lut, width, { x0, y0, x1, y1 })
     }
   }
 
@@ -176,12 +202,9 @@ function scaleAndGrayscale(dataUrl: string): Promise<{
       const MAX = 1600
       const MIN = 1000
       const longest = Math.max(img.width, img.height)
-      const scale =
-        longest > MAX
-          ? MAX / longest
-          : longest < MIN
-            ? Math.min(2, MIN / longest)
-            : 1
+      let scale = 1
+      if (longest > MAX) scale = MAX / longest
+      else if (longest < MIN) scale = Math.min(2, MIN / longest)
 
       const w = Math.round(img.width * scale)
       const h = Math.round(img.height * scale)
@@ -189,7 +212,7 @@ function scaleAndGrayscale(dataUrl: string): Promise<{
       const canvas = document.createElement('canvas')
       canvas.width = w
       canvas.height = h
-      const ctx = canvas.getContext('2d')!
+      const ctx = ctx2d(canvas)
 
       ctx.filter = 'grayscale(1) contrast(1.15)'
       ctx.drawImage(img, 0, 0, w, h)
@@ -215,7 +238,7 @@ export async function preprocessRawGrayscale(dataUrl: string): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
-  canvas.getContext('2d')!.putImageData(imageData, 0, 0)
+  ctx2d(canvas).putImageData(imageData, 0, 0)
   return canvas.toDataURL('image/png')
 }
 
@@ -229,7 +252,7 @@ export async function preprocessReceiptImageGrayscale(dataUrl: string): Promise<
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
-  const ctx = canvas.getContext('2d')!
+  const ctx = ctx2d(canvas)
   const out = new ImageData(w, h)
   for (let i = 0; i < w * h; i++) {
     out.data[i * 4] = gray[i]
@@ -260,7 +283,7 @@ export async function preprocessReceiptImage(dataUrl: string): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
-  canvas.getContext('2d')!.putImageData(binarized, 0, 0)
+  ctx2d(canvas).putImageData(binarized, 0, 0)
   return canvas.toDataURL('image/png')
 }
 
