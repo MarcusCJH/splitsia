@@ -51,7 +51,7 @@ export default function Home() {
             <line x1="15" y1="16" x2="18" y2="16"/>
           </svg>
         </div>
-        <h1 className={styles.heroTitle}>Splitsia</h1>
+        <h1 className={styles.heroTitle}>SplitLeh</h1>
         <p className={styles.heroSub}>Scan. Review. Split fairly.</p>
       </div>
 

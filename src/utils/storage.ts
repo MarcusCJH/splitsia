@@ -1,7 +1,7 @@
 import type { SplitSession } from '../types'
 
-const SESSIONS_KEY = 'splitsia_sessions'
-const DRAFT_KEY = 'splitsia_draft'
+const SESSIONS_KEY = 'splitleh_sessions'
+const DRAFT_KEY = 'splitleh_draft'
 
 export function loadSessions(): SplitSession[] {
   try {

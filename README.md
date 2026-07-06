@@ -1,4 +1,4 @@
-# SplitSia
+# SplitLeh
 
 A mobile-first PWA for scanning receipts, splitting costs, and sharing results with friends. Fully static — no backend, no login, no server.
 
@@ -50,9 +50,9 @@ npm test          # run unit tests
 npm run deploy    # builds and pushes dist/ to gh-pages branch
 ```
 
-The app is deployed at: https://marcuscjh.github.io/splitsia/
+The app is deployed at: https://marcuscjh.github.io/splitleh/
 
-`vite.config.ts` sets `base: '/splitsia/'`. HashRouter avoids 404s on GitHub Pages without a custom `404.html`.
+`vite.config.ts` sets `base: '/splitleh/'`. HashRouter avoids 404s on GitHub Pages without a custom `404.html`.
 
 ## Project Structure
 

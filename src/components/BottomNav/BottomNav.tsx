@@ -14,7 +14,7 @@ export default function BottomNav() {
     <div className={styles.wrapper}>
       <div className={styles.brand} aria-hidden="true">
         <BrandIcon />
-        <span>SplitSia</span>
+        <span>SplitLeh</span>
       </div>
       <nav className={styles.nav} aria-label="Main navigation">
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (

@@ -1,4 +1,4 @@
-# SplitSia
+# SplitLeh
 
 A mobile-first PWA for scanning receipts, splitting costs, and sharing results with friends. Fully static — no backend, no login, no server.
 
@@ -92,13 +92,13 @@ Two-column pages use `display: contents` on `.leftCol`/`.rightCol` wrappers at m
 
 ## GitHub Pages Deployment
 
-`vite.config.ts` sets `base: '/splitsia/'`. HashRouter avoids 404s without a custom `404.html`. To deploy:
+`vite.config.ts` sets `base: '/splitleh/'`. HashRouter avoids 404s without a custom `404.html`. To deploy:
 
 ```bash
 npm run deploy   # builds then pushes dist/ to the gh-pages branch
 ```
 
-Repo is `MarcusCJH/splitsia` (all lowercase). Update `base` in `vite.config.ts` and `start_url` / `scope` in `public/manifest.json` if the repo name changes.
+Repo is `MarcusCJH/splitleh` (all lowercase). Update `base` in `vite.config.ts` and `start_url` / `scope` in `public/manifest.json` if the repo name changes.
 
 ## Local Development
 

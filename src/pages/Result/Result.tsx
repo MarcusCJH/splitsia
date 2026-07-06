@@ -52,7 +52,7 @@ function buildCopyText(session: SplitSession, result: SplitResult): string {
     : []
 
   return [
-    'SplitSia result',
+    'SplitLeh result',
     `Total: ${formatCurrency(session.receipt.total, cur)}`,
     ...personSections,
     ...unassignedSection,
