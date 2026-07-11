@@ -1,0 +1,5 @@
+
+Pizza Margherita   12.00
+Garlic Bread        4.50
+Subtotal           22.00
+Total              25.00

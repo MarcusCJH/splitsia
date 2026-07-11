@@ -1,0 +1,6 @@
+*.swp
+cdk.out
+.cdk.staging
+.venv
+__pycache__
+*.pyc

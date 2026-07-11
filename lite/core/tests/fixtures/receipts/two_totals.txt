@@ -1,0 +1,5 @@
+
+Burger             10.00
+Fries               3.50
+Total              13.50
+Grand Total        13.50

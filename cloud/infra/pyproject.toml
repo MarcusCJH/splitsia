@@ -1,0 +1,12 @@
+﻿[project]
+name = "splitleh-infra"
+version = "0.1.0"
+description = "SplitLeh Cloud - AWS CDK infrastructure"
+requires-python = ">=3.12"
+dependencies = [
+    "aws-cdk-lib>=2.261.0",
+    "constructs>=10.6.0",
+]
+
+[tool.uv]
+package = false

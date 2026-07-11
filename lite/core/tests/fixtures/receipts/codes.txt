@@ -1,0 +1,7 @@
+
+001 Laksa           7.50
+002 Nasi Lemak      6.50
+0003 Mee Goreng     6.00
+Sub Total          20.00
+GST                 1.80
+Total              21.80

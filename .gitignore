@@ -10,10 +10,14 @@ Thumbs.db
 __pycache__/
 *.pyc
 
+# AWS CDK / Lambda build artifacts
+cloud/infra/cdk.out/
+cloud/api/dist/
+
 # IDE
 .idea/
 
-# Local dev only
-samples/
-scripts/
+# Local dev only (repo-root scripts/, not infra/scripts/)
+/samples/
+/scripts/
 *.traineddata

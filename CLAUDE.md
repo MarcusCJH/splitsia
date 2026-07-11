@@ -1,110 +1,166 @@
-# SplitLeh
+﻿# SplitLeh
 
-A mobile-first PWA for scanning receipts, splitting costs, and sharing results with friends. Fully static — no backend, no login, no server.
+Mobile-first receipt splitting - two products in one monorepo.
 
-## Goal
+| Product | Role | Constraints |
+|---|---|---|
+| **Lite** (`lite/web/`) | GitHub Pages PWA | Static only; on-device OCR; no login; images never leave the browser |
+| **Cloud** (`cloud/api/` + `cloud/infra/`) | Optional Telegram group bot | User-deployed AWS; cloud OCR; see `cloud/infra/README.md` |
 
-Let users photograph a receipt, extract items via in-browser OCR, assign items to people, split GST/service charge fairly, and share the final breakdown as plain text.
+## Shared logic
 
-## Constraints
+- **TypeScript (canonical):** `lite/core/` - parse, repair, split, reconcile
+- **Python (port):** `cloud/api/splitleh/` - same algorithms for Lambda; keep in sync when changing TS
+- **SG receipt helpers:** `lite/core/src/sgReceipt.ts` + `cloud/api/splitleh/sg_receipt.py` - 10% service charge, 9% GST, footer detection
+- **Fixtures:** `lite/core/tests/fixtures/receipts/*.txt` - shared by Vitest and pytest (`tsuta`, `sanook`, `pos_natureland`, …)
+- **Receipt formats reference:** `docs/sg-receipt-formats.md` - IRAS-style F&B layouts, label variants, sample mapping
 
-- V1 must deploy as a static site on GitHub Pages. Do not add a backend.
-- Do not add login or authentication of any kind.
-- Do not use paid APIs or any API that requires a key.
-- Receipt images must never leave the user's device.
-- OCR must run entirely in the browser (PaddleOCR via ONNX Runtime Web).
-- Every screen must be designed mobile-first. Desktop is a secondary concern.
-- Correction must be easy — OCR output will always have errors. Every extracted item must be editable before splitting.
+When editing parse/split logic in TS, port the same change to Python in the same PR and run `npm run test:all`.
 
-## Tech Stack
+## Lite tech stack
 
 | Concern | Choice |
 |---|---|
-| Framework | React 18 |
-| Build tool | Vite 6 |
-| Language | TypeScript (strict) |
-| OCR | PaddleOCR via `ppu-paddle-ocr` (in-browser, ONNX Runtime Web) |
-| Persistence | localStorage (draft + history) |
+| Framework | React 18 + Vite 6 + TypeScript (strict) |
+| OCR | PaddleOCR via `ppu-paddle-ocr` (browser, ONNX Runtime Web) |
+| Persistence | localStorage via `SessionRepository` port |
 | Routing | react-router-dom v6, HashRouter |
-| Styles | CSS Modules + global CSS variables |
-| Deployment | GitHub Pages (`npm run deploy`) |
+| Styles | CSS Modules + CSS custom properties |
+| Deploy | GitHub Pages (`npm run deploy`) |
 
-Do not introduce new major dependencies without asking first.
+Do not add a backend, login, or paid APIs to Lite.
 
-## Project Structure
+## Lite user flow
 
-```
-src/
-  types/          # Shared TypeScript types (receipt.ts)
-  store/          # React Context + useReducer state (ReceiptContext.tsx)
-  utils/          # Pure business logic: storage.ts, split.ts
-  components/     # Reusable UI: AppShell, BottomNav
-  pages/          # One folder per route: Home, Scan, Review, Split, Result
-```
+1. **Home** - new split or resume draft
+2. **Scan** - photo/upload; OCR in browser
+3. **Review** - edit items; set GST/service via `chargesFromParse()`
+4. **Split** - people + item assignment
+5. **Result** - totals; copy as plain text
 
-Keep components small and focused. Business logic belongs in `src/utils/`, not inside components.
-
-## Key User Flow
-
-1. **Home** — start a new split or resume a draft session.
-2. **Scan** — upload or photograph the receipt; image stays on device.
-3. OCR runs in-browser via Tesseract.js; raw text is stored in state.
-4. **Review** — edit extracted item names and prices; add/remove items; set tax and tip amounts.
-5. **Split** — add people by name; assign items to one or more people; shared items are divided equally among assignees.
-6. GST/service charge is split proportionally to each person's subtotal.
-7. **Result** — view per-person totals with itemised breakdown; copy as plain text to share.
-8. Save session to localStorage history; draft auto-saves on every change.
-
-## State Architecture
-
-All session state flows through `ReceiptContext` (Context + useReducer). The active draft persists to localStorage automatically. Completed sessions are saved separately and shown on the Home page.
+## State model (`SplitSession`)
 
 ```
-ReceiptSession
-  ├── items[]       ReceiptItem { id, name, price, quantity, assignedTo[] }
-  ├── people[]      Person { id, name, color }
-  ├── tax           number
-  ├── tip           number
-  └── rawImageDataUrl?  stored locally, never uploaded
+SplitSession
+  ├── receipt
+  │     ├── items[]     ReceiptItem { id, name, unitPrice, quantity, totalPrice }
+  │     └── charges[]   Charge { id, type, label, amount, splitStrategy, rate? }
+  ├── people[]          Person { id, name, color }
+  ├── assignments[]     ItemAssignment { itemId, personIds[] }
+  └── splitMode         'itemized' | 'equal'
 ```
 
-## Responsive Layout
+Draft persists via `ReceiptContext` + localStorage. Completed sessions saved to history.
 
-The app is mobile-first but has a full adaptive desktop layout at `≥768px`.
+## Project structure
 
-**Navigation:** `BottomNav` renders as a fixed bottom tab bar on mobile and transforms into a 220px left sidebar on desktop (defined by `--sidebar-width` in `index.css`). `AppShell` offsets `main` by `margin-left: var(--sidebar-width)` on desktop.
-
-**Page layouts on desktop:**
-- **Home** — centered single column, `max-width: 680px`
-- **Review** — two-column grid: items list (left, `1fr`) + charges/total/CTA (right, `320px`, sticky)
-- **Split** — two-column grid: people panel (left, `340px`, sticky) + item assignment (right, `1fr`)
-- **Result** — person cards in `auto-fill, minmax(280px, 1fr)` grid
-
-Two-column pages use `display: contents` on `.leftCol`/`.rightCol` wrappers at mobile sizes so the existing flex layout is unaffected. On desktop, the wrappers switch to `display: flex`.
-
-## Coding Style
-
-- Use clear, explicit TypeScript types. Avoid `any`.
-- Keep components under ~150 lines. Extract logic to `src/utils/` when it grows.
-- No comments unless the *why* is non-obvious from the code itself.
-- CSS Modules for component styles; CSS custom properties (`--color-primary`, etc.) for the design system.
-- Avoid over-engineering. Three similar lines is fine; premature abstractions are not.
-
-## GitHub Pages Deployment
-
-`vite.config.ts` sets `base: '/splitleh/'`. HashRouter avoids 404s without a custom `404.html`. To deploy:
-
-```bash
-npm run deploy   # builds then pushes dist/ to the gh-pages branch
+```
+lite/
+  web/                  # Lite PWA UI + adapters
+  core/                 # TS parse/split logic + tests
+cloud/
+  api/
+    splitleh_ocr/       # OCR Lambda
+      cdk/              # per-service CDK - never bundled
+      lambda_function.py, run.py, normalize.py, pick_parse.py, …
+    splitleh_telegram/  # Telegram webhook Lambda (aiogram 3)
+      cdk/
+      lambda_function.py, router.py, keyboards.py, …
+    shared/             # DynamoDB split store, scan budget → Lambda layer
+    splitleh/           # parse/split port → Lambda layer
+    tests/              # pytest
+  infra/                # AWS CDK - see cloud/infra/README.md
+    splitleh_cloud/
+      paths.py          # repo paths, bundle constants, service discovery
+      constructs/       # BaseLambda, Runtime, Storage, Api, Secrets, Budget
+    scripts/bundle_lambda.py
+docs/
+  sg-receipt-formats.md # SG F&B receipt layouts + how OCR/parse uses them
 ```
 
-Repo is `MarcusCJH/splitleh` (all lowercase). Update `base` in `vite.config.ts` and `start_url` / `scope` in `public/manifest.json` if the repo name changes.
+Lite UI: `lite/web/src/`. Business logic: `lite/core/`, not in page components.
 
-## Local Development
+## Cloud / Bot (optional)
+
+User-deployed AWS Telegram bot. Full deploy guide: `cloud/infra/README.md`. Region: `ap-southeast-1`.
+
+### Bot commands
+
+| Command | Action |
+|---|---|
+| `/scan` | Start split; reply with receipt photo |
+| `/people Alice Bob` | Solo mode: create named people; tap a name, then tap items for them |
+| `/status` | Who picked how many items |
+| `/done` | Compute and post split (anyone in group) |
+| `/cancel` | Abort active split |
+| `/start`, `/help` | Usage |
+
+### Claiming UX (group chat)
+
+- One **shared** inline keyboard on the item-list message (Telegram limitation - not per-user keyboards).
+- **Default (group):** each Telegram user taps their own items; picks stored in DynamoDB (`claimedItemIds` per user).
+- **Solo / proxy:** `/people Alice Bob Charlie` creates named people; person chips on the keyboard; taps assign to the **active** person (● mark). Include yourself in the list if you ate.
+- **Multiple people can pick the same item** - cost split equally in `calculate_split`.
+- Button labels show aggregate picks: `#1 Guinness $13.00 ×2` = two people sharing. In proxy mode, ✓ marks show the active person's picks.
+- Unclaimed items split equally among all participants who joined (`/status`, tapped **In group**, or listed via `/people`).
+- **Done picking** button triggers same flow as `/done`.
+
+### OCR pipeline (`splitleh_ocr/run.py`)
+
+1. **Textract** `AnalyzeExpense` (primary)
+2. Try several parse strategies; **pick best score** (`pick_parse.py`):
+   - Structured Textract fields → items/charges
+   - Line-item text → `parse_receipt`
+   - Labeled summary + lines → `parse_receipt`
+   - Raw Textract `LINE` blocks → `parse_receipt`
+3. **Bedrock Nova** fallback if all Textract candidates score too low (optional; account must be authorized)
+4. S3 receipt image deleted after OCR; split stored in DynamoDB
+
+Do not name Lambda zip-root modules after Python stdlib (`select.py`, `socket.py`, …) - breaks boto3 on cold start. Bundle script rejects forbidden names.
+
+### Lambda bundling
+
+- **Layer** (`cloud/api/dist/lambda_layer/python/`): pip deps + `shared/` + `splitleh/`
+- **Function** (`cloud/api/dist/lambda_code/{service}/`): flat `.py` at zip root - `lambda_function.py`, `run.py`, etc. No `cdk/`
+- Handler: `lambda_function.handler`
+- Bundling runs on `cdk deploy` via `app.py` → `ensure_bundled()`
+- `setup_import_paths()` must run **before** importing `splitleh_ocr` / `splitleh_telegram` CDK modules
+
+### IAC pattern
+
+Shared constructs in `splitleh_cloud/constructs/` (`BaseLambda`, `Runtime`, `Storage`, …). Per-service CDK in `cloud/api/splitleh_*/cdk/` (timeout, memory, env, IAM). Stack imports `Ocr` and `Telegram` from service `cdk/` packages.
+
+Handler modules use flat sibling imports in the bundle (`from run import …`) with `try/except ImportError` fallback to package imports for pytest.
+
+Do not bundle CDK or infra code into Lambda zips.
+
+## Responsive layout (Lite)
+
+Mobile-first; desktop breakpoint `≥768px`. `BottomNav` → left sidebar on desktop (`--sidebar-width`). Two-column Review/Split/Result grids on desktop - see existing CSS Modules.
+
+## Coding style
+
+- Explicit TypeScript types; no `any`
+- Components ~150 lines max; extract to utils when needed
+- CSS Modules + design tokens
+- Minimal comments; no over-abstraction
+
+## Local development
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # production build → dist/
-npm run preview  # preview the production build locally
+npm run dev          # Lite at http://localhost:5173
+npm run test:all     # Vitest + pytest
 ```
+
+Bot setup and redeploy: `cloud/infra/README.md`.
+
+```bash
+cd cloud/infra
+cdk deploy SplitlehStack-dev -c env=dev --profile splitleh
+# First deploy only: -c bot_token=YOUR_TOKEN
+```
+
+## GitHub Pages
+
+`lite/web/vite.config.ts` → `base: '/splitleh/'`. Repo: `MarcusCJH/splitleh`.

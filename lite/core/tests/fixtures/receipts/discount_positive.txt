@@ -1,0 +1,4 @@
+
+Burger Set         12.00
+Promo Discount      2.00
+Total              10.00

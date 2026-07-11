@@ -1,87 +1,161 @@
-# SplitLeh
+﻿# SplitLeh
 
-A mobile-first PWA for scanning receipts, splitting costs, and sharing results with friends. Fully static — no backend, no login, no server.
+A mobile-first PWA for scanning receipts, splitting costs, and sharing results with friends. Optional **Telegram group bot** for cloud OCR and tap-to-claim splitting.
 
-## Features
+| Product | What it is | Hosting |
+|---|---|---|
+| **Lite** | On-device OCR, no login, fully private | [GitHub Pages](https://marcuscjh.github.io/splitleh/) |
+| **Bot** (optional) | Telegram group bot - cloud OCR, inline item picking | Your AWS account (`ap-southeast-1`) |
 
-- Photograph or upload a receipt; the image never leaves your device
-- In-browser OCR via PaddleOCR extracts items and prices automatically
-- Edit any extracted item before splitting (OCR isn't perfect)
-- Add people by name and assign items to one or more of them
-- GST/service charge splits proportionally to each person's subtotal
-- Per-person itemised breakdown you can copy as plain text to share
-- Draft auto-saves to localStorage; completed sessions appear on the home screen
-- Adaptive layout: mobile bottom nav + two-column desktop views at ≥768px
+## User flow
 
-## User Flow
+### Lite (PWA)
 
-1. **Home** — start a new split or resume a saved draft
-2. **Scan** — upload or photograph a receipt (stays on device)
-3. **Review** — edit item names and prices; add or remove items; set tax and tip
-4. **Split** — add people; assign items to one or more people
-5. **Result** — view per-person totals; copy breakdown to share
+1. **Home** - start a new split or resume a draft
+2. **Scan** - photograph or upload a receipt (stays on device)
+3. **Review** - edit item names and prices; set tax and service charge
+4. **Split** - add people; assign items in the UI
+5. **Result** - per-person totals; copy breakdown to share
 
-## Tech Stack
+### Bot (Telegram group)
+
+1. `/scan` → send receipt photo
+2. Bot posts numbered items with inline buttons
+3. **Group:** everyone taps their own items (same dish → both tap → `×2`)
+4. **Solo:** `/people Alice Bob Charlie` → tap a name chip → tap their dishes (include yourself if you ate)
+5. `/status` to see picks; **Done picking** or `/done` to calculate
+6. `/cancel` to abort
+
+**Shared items:** If two people order the same dish, both get it assigned (group: both tap; solo: assign under each name). Buttons show `×2`.
+
+## Tech stack
+
+### Lite (GitHub Pages PWA)
 
 | Concern | Choice |
 |---|---|
 | Framework | React 18 |
-| Build tool | Vite 6 |
+| Build | Vite 6 |
 | Language | TypeScript (strict) |
-| OCR | PaddleOCR (in-browser via ONNX Runtime Web) |
+| OCR | PaddleOCR via `ppu-paddle-ocr` (in-browser, ONNX Runtime Web) |
 | Persistence | localStorage |
 | Routing | react-router-dom v6, HashRouter |
 | Styles | CSS Modules + CSS custom properties |
-| Deployment | GitHub Pages |
+| Deploy | GitHub Pages (`npm run deploy`) |
 
-## Getting Started
+### Cloud / Bot (optional)
+
+| Concern | Choice |
+|---|---|
+| Interface | Telegram Bot API ([aiogram](https://docs.aiogram.dev/) 3) |
+| Compute | AWS Lambda (Python 3.12, ARM64) - handler `lambda_function.handler` |
+| IaC | AWS CDK (Python) - shared constructs + per-service `cdk/` folders |
+| API | API Gateway HTTP API (webhook) |
+| Storage | DynamoDB (splits/claims), S3 (temp receipt images, deleted after OCR) |
+| OCR | **Textract AnalyzeExpense** (primary) → multi-strategy parse → **Bedrock Nova** fallback |
+| Region | `ap-southeast-1` |
+
+### Shared logic
+
+| Concern | Choice |
+|---|---|
+| Parse / split (canonical) | `lite/core` (TypeScript) |
+| Parse / split (bot port) | `cloud/api/splitleh/` (Python) |
+| SG receipt heuristics | `sgReceipt.ts` / `sg_receipt.py` (service charge, GST, POS footer patterns) |
+| Receipt fixtures | `lite/core/tests/fixtures/receipts/` (Natureland, Tsuta, Sanook, …) |
+| Format reference | [docs/sg-receipt-formats.md](docs/sg-receipt-formats.md) |
+| Monorepo | npm workspaces (`lite/*`) + uv workspace (`cloud/*`) |
+
+## Features
+
+**Lite**
+
+- Receipt images never leave the device
+- In-browser OCR; easy correction before splitting
+- GST / service charge split proportionally by subtotal
+- Draft auto-save; mobile-first layout with desktop breakpoint at ≥768px
+
+**Bot**
+
+- Deploy your own instance (not a shared hosted bot)
+- Group receipt scan → numbered items with inline buttons
+- **Shared dishes** - multiple people can claim the same item; `×N` on buttons
+- Unclaimed items split equally among participants
+- Fair split with per-person totals posted to the chat
+- Images uploaded to S3 for OCR, then deleted
+
+## Getting started
+
+### Lite
 
 ```bash
 npm install
-npm run dev       # http://localhost:5173
-npm run build     # production build → dist/
-npm run preview   # preview the production build locally
-npm test          # run unit tests
+npm run dev          # http://localhost:5173
+npm run build
+npm run test:all     # core (TS) + api (Python) tests
 ```
+
+### Bot
+
+See **[cloud/infra/README.md](cloud/infra/README.md)** for the full setup guide (BotFather, AWS, CDK, webhook, troubleshooting).
+
+```bash
+cd cloud/infra
+cdk deploy SplitlehStack-dev -c env=dev --profile splitleh
+# First deploy only: add -c bot_token=YOUR_TOKEN
+```
+
+Do not commit your bot token.
 
 ## Deployment
 
-```bash
-npm run deploy    # builds and pushes dist/ to gh-pages branch
-```
+| Target | Command | When |
+|---|---|---|
+| Lite (GitHub Pages) | `npm run deploy` | Manual, or auto on push to `master` |
+| Bot (AWS) | `cdk deploy` (see cloud/infra README) | Manual from your machine |
 
-The app is deployed at: https://marcuscjh.github.io/splitleh/
-
-`vite.config.ts` sets `base: '/splitleh/'`. HashRouter avoids 404s on GitHub Pages without a custom `404.html`.
-
-## Project Structure
+## Project structure
 
 ```
-src/
-  types/          # Shared TypeScript types
-  store/          # React Context + useReducer (ReceiptContext)
-  utils/          # Pure business logic: parsing, splitting, storage, OCR
-  components/     # Reusable UI: AppShell, BottomNav
-  pages/          # One folder per route: Home, Scan, Review, Split, Result
+SplitSia/
+├── lite/
+│   ├── web/               # GitHub Pages PWA
+│   └── core/              # Parse/split logic + tests (TypeScript)
+├── cloud/
+│   ├── api/
+│   │   ├── splitleh_ocr/      # OCR Lambda (Textract + Bedrock fallback)
+│   │   ├── splitleh_telegram/ # Telegram webhook (aiogram)
+│   │   ├── shared/            # DynamoDB store, scan budget
+│   │   ├── splitleh/          # parse/split Python port
+│   │   └── tests/             # pytest
+│   └── infra/             # AWS CDK → see cloud/infra/README.md
+├── docs/
+│   └── sg-receipt-formats.md  # SG F&B receipt layout reference
+└── .github/workflows/     # CI + Lite CD
 ```
+
+Per-service CDK lives in `cloud/api/splitleh_*/cdk/` (timeout, memory, IAM). Shared infra in `cloud/infra/splitleh_cloud/`.
+
+## CI / CD
+
+| Workflow | Trigger | What |
+|---|---|---|
+| [ci.yml](.github/workflows/ci.yml) | PR + push (not `master`) | Lite build, `npm test`, `pytest cloud/api/tests` |
+| [deploy.yml](.github/workflows/deploy.yml) | Push to `master` | Tests + deploy Lite to GitHub Pages |
+
+Bot AWS deploy is **manual** in v1. Optional GitHub OIDC bot CD is documented in [cloud/infra/README.md#cicd-optional](cloud/infra/README.md#cicd-optional).
 
 ## Contributing
 
-Contributions are welcome. To get started:
-
-1. Fork the repo and create a branch from `master`
-2. Run `npm install` and `npm run dev` to confirm everything works
-3. Make your changes — keep components under ~150 lines and put business logic in `src/utils/`
-4. Run `npm test` to make sure existing tests pass; add tests for new logic in `src/utils/__tests__/`
-5. Open a pull request with a clear description of what you changed and why
-
-A few things to keep in mind:
-
-- No backend, login, or paid APIs — the app must remain fully static
-- Receipt images must never leave the user's device
-- Mobile-first: every UI change should look good on a small screen first; the desktop breakpoint is `≥768px` — see the Responsive Layout section in `CLAUDE.md`
-- Avoid introducing new major dependencies without discussing it in the PR first
+1. Fork, branch from `master`, run `npm install`
+2. `npm run test:all` must pass before opening a PR
+3. **Lite** stays static - no backend in `lite/web/`; receipt images must not leave the device
+4. Bot changes need tests under `cloud/api/tests/`
+5. **Parse/split logic:** edit `lite/core/` first, port to `cloud/api/splitleh/` in the same PR; add receipt fixtures under `lite/core/tests/fixtures/receipts/` for new SG POS layouts
+6. Avoid new major dependencies without discussing in the PR
+7. Do not name Lambda handler modules after Python stdlib modules (e.g. `select.py`)
 
 ## Privacy
 
-Receipt images are processed entirely in the browser using on-device ML models. No image data, receipt content, or personal information is sent to any server.
+- **Lite:** OCR and images stay in the browser; nothing is sent to a server.
+- **Bot:** Receipt photos go to your S3 bucket for OCR, then are deleted. Claims and parsed items live in your DynamoDB table.

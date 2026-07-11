@@ -2,30 +2,18 @@
   "name": "splitleh",
   "private": true,
   "version": "0.1.0",
-  "type": "module",
+  "workspaces": [
+    "lite/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -p tsconfig.app.json && vite build",
-    "preview": "vite preview",
-    "deploy": "npm run build && gh-pages -d dist",
-    "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "dependencies": {
-    "onnxruntime-web": "^1.27.0",
-    "ppu-paddle-ocr": "^6.0.0",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "react-router-dom": "^7.18.1"
-  },
-  "devDependencies": {
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.3",
-    "gh-pages": "^6.3.0",
-    "playwright": "^1.61.1",
-    "typescript": "^6.0.3",
-    "vite": "^8.1.3",
-    "vitest": "^4.1.10"
+    "dev": "npm run dev -w @splitleh/lite-web",
+    "build": "npm run build -w @splitleh/lite-web",
+    "preview": "npm run preview -w @splitleh/lite-web",
+    "deploy": "npm run deploy -w @splitleh/lite-web",
+    "bundle:lambda": "uv run python cloud/infra/scripts/bundle_lambda.py",
+    "test": "npm run test -w @splitleh/core",
+    "test:api": "uv run --directory cloud/api pytest tests -q",
+    "test:all": "npm test && npm run test:api",
+    "test:watch": "npm run test -w @splitleh/core -- --watch"
   }
 }

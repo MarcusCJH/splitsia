@@ -1,0 +1,10 @@
+
+Pasta Carbonara    15.90
+Garlic Bread        4.50
+House Wine         18.00
+Subtotal           38.40
+Member Discount    -3.84
+Service Charge      3.84
+GST 9%              3.46
+Rounding           -0.01
+Grand Total        43.85

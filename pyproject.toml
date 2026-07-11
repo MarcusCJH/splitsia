@@ -1,0 +1,18 @@
+﻿[project]
+name = "splitleh"
+version = "0.1.0"
+description = "SplitLeh monorepo - Python workspace root"
+requires-python = ">=3.12"
+readme = "CLAUDE.md"
+
+[tool.uv]
+managed = true
+
+[tool.uv.workspace]
+members = ["cloud/infra", "cloud/api"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.9",
+]

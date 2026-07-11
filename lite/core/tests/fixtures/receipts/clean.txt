@@ -1,0 +1,7 @@
+
+Chicken Rice        3.50
+Char Kway Teow      4.50
+Teh Tarik           1.80
+Subtotal            9.80
+GST 9%              0.88
+Total              10.68

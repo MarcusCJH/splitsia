@@ -1,4 +1,6 @@
-name: Deploy to GitHub Pages
+﻿name: Deploy to GitHub Pages
+
+# Lite production deploy - master only. PR/branch validation uses ci.yml.
 
 on:
   push:
@@ -25,11 +27,18 @@ jobs:
           node-version: 24
           cache: npm
 
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python deps
+        run: uv sync --all-packages --group dev
+
       - name: Install dependencies
         run: npm install --frozen-lockfile
 
       - name: Run tests
-        run: npm test
+        run: npm run test:all
 
       - name: Build
         run: npm run build
@@ -37,7 +46,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist
+          path: ./lite/web/dist
 
   deploy:
     environment:

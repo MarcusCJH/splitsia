@@ -1,0 +1,17 @@
+
+ABC RESTAURANT PTE LTD
+123 Orchard Road Singapore 238859
+Tel: 6789 0123
+GST Reg No: 200123456M
+
+Wonton Soup         5.50
+Spring Roll         4.00
+
+Subtotal            9.50
+GST 9%              0.86
+Total              10.36
+
+Thank You For Visiting!
+www.abcrestaurant.com.sg
+Cash               10.36
+Change              0.00

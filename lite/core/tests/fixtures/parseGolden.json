@@ -1,0 +1,43 @@
+{
+  "clean": {
+    "itemCount": 3,
+    "items": [
+      { "name": "Chicken Rice", "totalPrice": 3.5 },
+      { "name": "Char Kway Teow", "totalPrice": 4.5 },
+      { "name": "Teh Tarik", "totalPrice": 1.8 }
+    ],
+    "charges": [
+      { "type": "subtotal", "amount": 9.8 },
+      { "type": "gst", "amount": 0.88 },
+      { "type": "total", "amount": 10.68 }
+    ]
+  },
+  "codes": {
+    "itemCount": 3,
+    "items": [
+      { "name": "Laksa", "totalPrice": 7.5 },
+      { "name": "Nasi Lemak", "totalPrice": 6.5 },
+      { "name": "Mee Goreng", "totalPrice": 6 }
+    ]
+  },
+  "qty": {
+    "itemCount": 3,
+    "items": [
+      { "name": "Nasi Lemak", "quantity": 2, "totalPrice": 8 },
+      { "name": "Milo Dinosaur", "quantity": 2, "totalPrice": 6 }
+    ]
+  },
+  "discount_positive": {
+    "hasNegativeDiscount": true
+  },
+  "low_conf": {
+    "lowConfidenceItem": "Xz"
+  },
+  "pos_natureland": {
+    "itemCountMin": 4,
+    "serviceCharge": 37.18,
+    "gst": 36.81,
+    "discount": -136.8,
+    "total": 445.79
+  }
+}
